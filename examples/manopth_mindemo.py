@@ -12,10 +12,10 @@ from pathlib import Path
 import os
 output_path = Path(os.getcwd() + '\out')
 mesh_distance = 300
-number_of_sample = 100
+number_of_sample = 5000
 sample_count =0
 yfov = np.pi / 3.5
-show_debug = False
+show_debug = True
 # Initialize MANO layer
 mano_layer = ManoLayer(
     mano_root='..\\mano\\models', use_pca=True, ncomps=ncomps, flat_hand_mean=False)
@@ -27,6 +27,13 @@ for it in range(number_of_sample):
         random_pose = 2 * np.random.rand() * torch.rand(batch_size, ncomps + 3)
         hand_verts, hand_joints = mano_layer(random_pose, random_shape)
 
+        # print(hand_verts.shape)
+        # demo.display_hand({
+        #     'verts': hand_verts,
+        #     'joints': hand_joints
+        # },
+        #     mano_faces=mano_layer.th_faces)
+
         hand_verts[:, :, 2] -= mesh_distance
         hand_joints[:, :, 2] -= mesh_distance
 
@@ -37,7 +44,8 @@ for it in range(number_of_sample):
                                faces=faces)
         mesh = pyrender.Mesh.from_trimesh(mesh)
 
-        scene = pyrender.Scene(bg_color = [124 ,252 ,0])
+        # scene = pyrender.Scene(bg_color = [124 ,252 ,0])
+        scene = pyrender.Scene()
         scene.add(mesh)
 
         m = trimesh.creation.uv_sphere(radius=2)
@@ -59,7 +67,7 @@ for it in range(number_of_sample):
         ])
         scene.add(camera, pose=camera_pose)
         # Set up the light -- a single spot light in the same spot as the camera
-        light = pyrender.SpotLight(color=np.ones(3), intensity=3000.0,
+        light = pyrender.SpotLight(color=np.ones(3), intensity=300000.0,
                                    innerConeAngle=np.pi / 16.0)
         scene.add(light, pose=camera_pose)
         sw = 320
@@ -68,7 +76,10 @@ for it in range(number_of_sample):
         r = pyrender.OffscreenRenderer(sw, sh)
         color, depth = r.render(scene)
         #
+        # import matplotlib.pyplot as plt
 
+        # plt.imshow(color)
+        # plt.show()
         # pyrender.Viewer(scene, use_raymond_lighting=True, point_size=30)
         # Show the images
         data = {}
@@ -104,6 +115,7 @@ for it in range(number_of_sample):
             plt.figure()
             plt.imshow(data['rgb_image'])
             plt.plot(kp_points_uv[:,0], kp_points_uv[:,1], 'yx')
+
             plt.show()
 
         valid_data = ((kp_points_uv[:, 0] > 0) & (kp_points_uv[:, 0] < sw) & (kp_points_uv[:, 1] > 0) & (
