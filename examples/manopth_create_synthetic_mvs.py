@@ -22,40 +22,44 @@ def estimate_rotation_matrix_for_normalized_vectores(A, B):
 
 output_path = Path(os.getcwd() + '\out_mvs')
 # mesh_distance = 300
-number_of_sample = 50
+number_of_sample = 10000
 sample_count = 0
-number_of_perspectives = 5
+number_of_perspectives = 2
 yfov = np.pi / 3.5
 skin_rgb_color = [165.0, 126.0, 110.0]
 UseLiveView = False
 camera_initial_pose = np.array([
     [1.0, 0.0, 0.0, 0.0],
     [0.0, 1.0, 0.0, 0.0],
-    [0.0, 0.0, 1.0, 220.0],
+    [0.0, 0.0, 1.0, 350.0],
     [0.0, 0.0, 0.0, 1.0],
 ])
 initialize_lookat = camera_initial_pose[:3, 3] / np.linalg.norm(camera_initial_pose[:3, 3])
 
 show_debug = True
 # Initialize MANO layer
+# mano_layer = ManoLayer(
+#     mano_root='..\\mano\\models', use_pca=True, ncomps=ncomps, flat_hand_mean=False, center_idx=9)
 mano_layer = ManoLayer(
-    mano_root='..\\mano\\models', use_pca=True, ncomps=ncomps, flat_hand_mean=False, center_idx=9)
+
+    mano_root='..\\mano\\models', use_pca=True, ncomps=ncomps, flat_hand_mean=False, center_idx=0)
 import matplotlib.pyplot as plt
 
 from mpl_toolkits.mplot3d import Axes3D
 
 fig = plt.figure()
 ax = plt.axes(projection='3d')
-for it in range(number_of_sample):
+for it in range(1,number_of_sample):
     try:
-        plt.pause(1)
-        plt.close('all')
-        ax.clear()
+        if show_debug:
+            plt.pause(1)
+            plt.close('all')
+            ax.clear()
         # Generate random shape parameters
         random_shape = torch.rand(batch_size, 10)
         # Generate random pose parameters, including 3 values for global axis-angle rotation
         random_pose = 4 * (np.random.rand() - 0.5) * torch.rand(batch_size, ncomps + 3)
-        random_pose[0, :3] = 0  # mask root rotation
+        random_pose[0, :3] =  torch.from_numpy(8* (np.random.rand(3) - 0.5))   # mask root rotation
         hand_verts, hand_joints = mano_layer(random_pose, random_shape,
                                              torch.from_numpy(np.array([0, 0, 0])).unsqueeze(0).float())
 
@@ -64,10 +68,11 @@ for it in range(number_of_sample):
         #     'verts': hand_verts,
         #     'joints': hand_joints
         # },
-        #     ax=ax, mano_faces=mano_layer.th_faces, show=False)
-
+        #       mano_faces=mano_layer.th_faces, show=True)
+        #
         # plt.draw()
         # plt.pause(.1)
+        # plt.show()
 
         mesh = trimesh.Trimesh(vertices=hand_verts.squeeze().detach().cpu().numpy(),
                                faces=mano_layer.th_faces.squeeze().detach().cpu().numpy())
@@ -94,14 +99,16 @@ for it in range(number_of_sample):
         sh = 320
         nc1 = pyrender.Node(camera=camera, matrix=camera_initial_pose)
         scene.add_node(nc1)
-        light = pyrender.SpotLight(color=np.ones(3), intensity=3000.0,
+        light = pyrender.SpotLight(color=np.ones(3), intensity=300000.0,
                                    innerConeAngle=np.pi / 16.0)
         scene.add(light, pose=camera_initial_pose)
 
 
         data = {}
-        data['kp_coord_xyz'] = []
-        data['verts_coord_xyz'] = []
+        data['camera_intrinsic_matrix'] = []
+        data['kp_coord_xyz_in_cam_coords'] = []
+        data['kp_coord_xyz_in_mano_coords'] = []
+        data['verts_coord_xyz_in_cam_coords'] = []
         data['mano_shape'] = []
         data['mano_pose'] = []
         data['depth_map'] = []
@@ -121,7 +128,7 @@ for it in range(number_of_sample):
             new_lookat = new_po[:3, 3] / np.linalg.norm(new_po[:3, 3])
             r, _ = estimate_rotation_matrix_for_normalized_vectores(initialize_lookat, new_lookat)
             new_po[:3, :3] = r
-            if perpec==0:
+            if perpec<5:
                 new_po=camera_initial_pose
             scene.set_pose(nc1, pose=new_po)
             # print(scene.get_pose(nc1))
@@ -152,17 +159,26 @@ for it in range(number_of_sample):
                 pt[1] *= fu
                 mesh_points_uv.append([sw / 2 - pt[0], sh / 2 + pt[1]])
 
+
             kp_points_uv = []
+            rays = []
             for j in range(c_hand_joints.shape[1]):
                 fu = sh / 2 / (np.tan(yfov / 2))
                 fv = sw / 2 / (np.tan(yfov / 2))
 
                 pt = (c_hand_joints[ :, j].detach().cpu().numpy() / (
                 c_hand_joints[ :, j].detach().cpu().numpy()[2]))
+                rays.append(pt.copy())
                 pt[0] *= fv
                 pt[1] *= fu
                 kp_points_uv.append([sw / 2 - pt[0], sh / 2 + pt[1]])
 
+            rays = np.array(rays)[:, 0:3]
+
+            # from scipy.io import savemat
+            #
+            # savemat('data.mat', {'rt_matrix':new_po,'pcl_rotated': hand_joints[0].detach().cpu().numpy(),'focal':fu,'pp':sw/2,
+            #                      'rays': rays,'pcl_cam_aligned':c_hand_joints.transpose(1,0).detach().cpu().numpy()[:,:3]})
             kp_points_uv = np.array(kp_points_uv)
             mesh_points_uv = np.array(mesh_points_uv)
             if show_debug:
@@ -180,37 +196,66 @@ for it in range(number_of_sample):
 
                 plt.figure()
                 plt.imshow(color)
-                plt.plot(kp_points_uv[:, 0], kp_points_uv[:, 1], 'yx')
+                # rev = [0,4,3,2,1,8,7,6,5]
+                # for k in range(kp_points_uv.shape[0]):
+
+                plt.plot(kp_points_uv[:, 0], kp_points_uv[:, 1], 'rx')
                 plt.plot(mesh_points_uv[:, 0], mesh_points_uv[:, 1], 'bx')
             #
                 plt.draw()
                 plt.pause(.1)
-                valid_data = ((kp_points_uv[:, 0] > 0) & (kp_points_uv[:, 0] < sw) & (kp_points_uv[:, 1] > 0) & (
-                        kp_points_uv[:, 1] < sh)).all()
-                data['kp_coord_xyz'].append(c_hand_joints.detach().cpu().numpy())
-                data['verts_coord_xyz'].append(c_hand_verts.detach().cpu().numpy())
-                data['mano_shape'].append(random_shape.detach().cpu().numpy())
-                data['mano_pose'].append(random_pose.detach().cpu().numpy())
-                data['depth_map'].append(depth)
-                data['rgb_image'].append(color)
-                data['perpective_rt'].append(new_po)
-                data['kp_points_uv'].append(kp_points_uv)
-                data['mesh_points_uv'].append(mesh_points_uv)
-                data['valid_data'].append(valid_data)
+                # demo.display_hand({
+                #     'verts': hand_verts,
+                #     'joints': hand_joints
+                # },
+                #       mano_faces=mano_layer.th_faces, show=True)
+                #
+                # plt.draw()
+                # plt.pause(.1)
+                # plt.show()
+
+            valid_data = ((kp_points_uv[:, 0] > 0) & (kp_points_uv[:, 0] < sw) & (kp_points_uv[:, 1] > 0) & (
+                    kp_points_uv[:, 1] < sh)).all()
+            K = torch.zeros((3, 3))
+
+
+            # mesh_points_uv = []
+            # for j in range(c_hand_verts.shape[1]):
+            fu = sh / 2 / (np.tan(yfov / 2))
+            fv = sw / 2 / (np.tan(yfov / 2))
+            K[0, 0] = fu
+            K[1, 1] = fv
+            K[2, 2] = 1.0
+            K[0, 2] = sw / 2
+            K[1, 2] = sh / 2
+            data['camera_intrinsic_matrix'] = K.detach().cpu().numpy()
+            data['kp_coord_xyz_in_cam_coords'].append(c_hand_joints.transpose(1,0).detach().cpu().numpy()[np.newaxis,:,:3])
+            data['kp_coord_xyz_in_mano_coords'].append(hand_joints.detach().cpu().numpy())
+            data['verts_coord_xyz_in_cam_coords'].append(c_hand_verts.transpose(1,0).detach().cpu().numpy()[np.newaxis,:,:3])
+            data['mano_shape'].append(random_shape.detach().cpu().numpy())
+            data['mano_pose'].append(random_pose.detach().cpu().numpy())
+            data['depth_map'].append(depth)
+            data['rgb_image'].append(color)
+            data['perpective_rt'].append(new_po)
+            data['kp_points_uv'].append(kp_points_uv[np.newaxis,...])
+            data['mesh_points_uv'].append(mesh_points_uv[np.newaxis,...])
+            data['valid_data'].append(valid_data)
 
         if all(data['valid_data']):
             # print('valid sample number {}'.format(sample_count))
             np.savez(output_path / 'data_{}.npz'.format(it),
-                     verts_coord_xyz=data['verts_coord_xyz'],
+                     verts_coord_xyz_in_cam_coords=data['verts_coord_xyz_in_cam_coords'],
                      mano_shape=data['mano_shape'],
                      mano_pose=data['mano_pose'],
                      kp_coord_uv=data['kp_points_uv'],
                      perpective_rt=data['perpective_rt'],
-                     kp_coord_xyz=data['kp_coord_xyz'],
+                     kp_coord_xyz_in_mano_coords=data['kp_coord_xyz_in_mano_coords'],
+                     kp_coord_xyz_in_cam_coords=data['kp_coord_xyz_in_cam_coords'],
                      depth_map=data['depth_map'],
                      valid_data=data['valid_data'],
                      mesh_points_uv=data['mesh_points_uv'],
                      rgb_image=data['rgb_image'])
+            print('{}-th iteration - {}-th valid sample'.format(it,sample_count))
             sample_count += 1
 
         # print(hand_verts.shape)

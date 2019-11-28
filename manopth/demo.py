@@ -29,7 +29,7 @@ def display_hand(hand_info, mano_faces=None, ax=None, alpha=0.2, batch_idx=0, sh
         ax.scatter(verts[:, 0], verts[:, 1], verts[:, 2], alpha=0.1)
     else:
         mesh = Poly3DCollection(verts[mano_faces], alpha=alpha)
-        face_color = (141 / 255, 184 / 255, 226 / 255)
+        # face_color = (141 / 255, 184 / 255, 226 / 255)
         face_color = (np.random.randint(255) / 255, np.random.randint(255) / 255, np.random.randint(255) / 255)
         edge_color = (50 / 255, 50 / 255, 50 / 255)
         mesh.set_edgecolor(edge_color)
@@ -38,10 +38,12 @@ def display_hand(hand_info, mano_faces=None, ax=None, alpha=0.2, batch_idx=0, sh
     ax.scatter(joints[:, 0], joints[:, 1], joints[:, 2], color='r')
     ax.scatter(0,0,0, color='b')
 
-    # ax.view_init(elev=10., azim=40)
-    # ax.set_xlabel('x')
-    # ax.set_ylabel('y')
-    # ax.set_zlabel('z')
+    ax.view_init(elev=-90., azim=-90)
+
+
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.set_zlabel('z')
     cam_equal_aspect_3d(ax, verts.numpy())
     if show:
         plt.show()
